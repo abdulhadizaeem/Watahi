@@ -1,0 +1,583 @@
+{
+    "agent_id": "",
+    "channel": "voice",
+    "agent_name": "Restaurant Calling Agent",
+    "response_engine": {
+        "type": "conversation-flow",
+        "version": 1,
+        "conversation_flow_id": "conversation_flow_b62a5ac6d622"
+    },
+    "language": "en-US",
+    "voice_id": "cartesia-Brynne",
+    "voice_temperature": 0.7,
+    "voice_speed": 1.0,
+    "responsiveness": 1.0,
+    "interruption_sensitivity": 0.8,
+    "enable_backchannel": true,
+    "backchannel_frequency": 0.5,
+    "backchannel_words": [
+        "got it",
+        "sure",
+        "of course",
+        "absolutely"
+    ],
+    "end_call_after_silence_ms": 15000,
+    "begin_message_delay_ms": 1000,
+    "reminder_trigger_ms": 8000,
+    "reminder_max_count": 2,
+    "normalize_for_speech": true,
+    "data_storage_setting": "everything",
+    "opt_in_signed_url": false,
+    "version": 1,
+    "is_published": false,
+    "post_call_analysis_model": "gpt-4.1-mini",
+    "pii_config": {
+        "mode": "post_call",
+        "categories": []
+    },
+    "max_call_duration_ms": 3600000,
+    "allow_user_dtmf": true,
+    "user_dtmf_options": {},
+    "conversationFlow": {
+        "conversation_flow_id": "conversation_flow_b62a5ac6d622",
+        "version": 1,
+        "global_prompt": "You are a professional, friendly phone agent for a restaurant. You speak clearly and concisely.\n\nPERSONA RULES — always active regardless of which node you are in:\n1. Never make up menu items or prices. If you do not know, say so.\n2. Always confirm the full order back to the customer before submitting it.\n3. If you cannot answer a question about the restaurant, offer to connect the caller with a team member rather than guessing.\n4. Use the customer's name at most ONCE per call — only in the opening greeting for returning customers. Never repeat their name mid-conversation.\n5. Keep every response under 2 sentences. Be direct and natural.\n6. Never say 'Is there anything else I can help you with?' more than once per call.\n7. When the customer says goodbye or thank you, end the call immediately. Do not ask follow-up questions.\n8. Never read out a full menu unprompted. Only confirm what the customer asked for.\n9. Do not start responses with filler words like 'Certainly!', 'Absolutely!', or 'Of course!'.\n\nINTERRUPTION RULES — critical:\n- If the customer speaks while you are talking, STOP IMMEDIATELY. Do not finish your sentence.\n- After stopping, LISTEN FULLY to what the customer says before responding.\n- NEVER repeat what you were saying before the interruption. Start fresh based on what the customer just said.\n- NEVER summarise what you were saying. Just respond to the customer's new input directly.\n- If the customer says 'stop', 'wait', 'hold on', or 'cancel', stop talking immediately and wait for them to continue.\n\nMENU AND ORDERING RULES:\n- Only accept orders for items that appear in {{menu}}.\n- If a customer orders something not in {{menu}}, say: 'I do not have that on our menu right now. Can I help you with something else?'\n- Always confirm the exact price from {{menu}} when the customer orders an item.\n- If there are active specials in {{menu}}, mention them naturally after greeting if the customer is placing an order. Do not read all specials unprompted — only mention relevant ones.\n- If kitchen_is_open is 'false', politely inform the customer the kitchen is not accepting orders right now and offer to take a reservation instead.\n\nDYNAMIC VARIABLES AVAILABLE:\n- {{customer_name}} — caller's saved name, or empty string if new\n- {{is_returning_customer}} — 'true' if caller has called before, 'false' if new\n- {{customer_phone}} — caller's phone number in E.164 format\n- {{kitchen_is_open}} — 'true' if kitchen is currently accepting orders, 'false' if not\n- {{store_is_open}} — 'true' if the restaurant is currently open, 'false' if closed\n- {{menu}} — the complete current restaurant menu with all available items, prices, allergens, and today's specials. This is your ONLY source of truth for menu items and pricing. Never reference items not listed in {{menu}}.\n- {{restaurant_info}} — general restaurant information. If a knowledge base is attached, it will be used automatically to answer menu and FAQ questions with accurate information from the restaurant's actual menu and policies.",
+        "nodes": [
+            {
+                "id": "start-node-greeting",
+                "name": "Greeting",
+                "type": "conversation",
+                "start_speaker": "agent",
+                "instruction": {
+                    "type": "prompt",
+                    "text": "Check {{store_is_open}}:\n- If 'false': say the closed greeting. Do not offer to take orders or reservations. Transition to End_Call after greeting.\n\nCheck {{kitchen_is_open}}:\n- If 'false' but store_is_open is 'true': greet normally but do NOT offer order taking. Only handle inquiries and reservations. If customer asks to order, tell them the kitchen is not accepting orders right now but offer to take a reservation instead.\n\nIf both are 'true', greet normally:\n- If {{is_returning_customer}} is 'true' AND {{customer_name}} is not empty: say 'Welcome back, {{customer_name}}! Thanks for calling. How can I help you today?'\n- Otherwise: say 'Thank you for calling! How can I help you today?'\n\nListen for their intent and transition based on what they say."
+                },
+                "model_choice": {
+                    "type": "cascading",
+                    "model": "gpt-4.1-mini",
+                    "high_priority": false
+                },
+                "edges": [
+                    {
+                        "id": "edge-greeting-to-order",
+                        "destination_node_id": "node-order-taking",
+                        "transition_condition": {
+                            "type": "prompt",
+                            "prompt": "Customer wants to place an order and kitchen is open."
+                        }
+                    },
+                    {
+                        "id": "edge-greeting-to-reservation",
+                        "destination_node_id": "node-reservation",
+                        "transition_condition": {
+                            "type": "prompt",
+                            "prompt": "Customer wants to make a reservation or book a table."
+                        }
+                    },
+                    {
+                        "id": "edge-greeting-to-inquiry",
+                        "destination_node_id": "node-inquiry",
+                        "transition_condition": {
+                            "type": "prompt",
+                            "prompt": "Customer has a question or wants information about the restaurant."
+                        }
+                    },
+                    {
+                        "id": "edge-greeting-to-end",
+                        "destination_node_id": "end-call-node",
+                        "transition_condition": {
+                            "type": "prompt",
+                            "prompt": "Customer wants to end the call."
+                        }
+                    }
+                ],
+                "display_position": {
+                    "x": 280.0,
+                    "y": 400.0
+                }
+            },
+            {
+                "id": "node-order-taking",
+                "name": "Order_Taking",
+                "type": "conversation",
+                "instruction": {
+                    "type": "prompt",
+                    "text": "Take the customer's order using {{menu}} as your reference. If the customer interrupts at any point during order taking, stop immediately, listen to what they said, and continue from that point. Do not re-read the order or repeat previous questions.\n\nSTEP 1 — Ask what they would like to order.\nSTEP 2 — Check {{menu}} to confirm the item exists and note its price.\n         If item not found in {{menu}}: say 'We do not have that right now. Can I get you something else?'\n         If found: confirm name and price. Example: 'The Classic Cheeseburger is $8.99, got it.'\n         If a special applies to what they ordered, mention it naturally.\nSTEP 3 — Ask for quantity.\nSTEP 4 — Ask for special instructions for that item.\nSTEP 5 — Ask if they want to add anything else. Repeat steps 1-4 per item.\nSTEP 6 — Once done, read the FULL order back with prices and total.\n         Apply any specials discounts when calculating total.\n         Example: '2x Classic Cheeseburger at $8.99 each and 1x Large Fries at $3.49. Your total is $21.47. Does that look right?'\nSTEP 7 — Ask for name if not already known from {{customer_name}}.\nSTEP 8 — Ask for order type: pickup or delivery.\n         If delivery, ask for the delivery address.\nSTEP 9 — Once customer confirms order and you have name and order type, transition to confirm_order function node immediately."
+                },
+                "model_choice": {
+                    "type": "cascading",
+                    "model": "gpt-4.1-mini",
+                    "high_priority": false
+                },
+                "edges": [
+                    {
+                        "id": "edge-order-to-confirm",
+                        "destination_node_id": "node-confirm-order",
+                        "transition_condition": {
+                            "type": "prompt",
+                            "prompt": "Customer confirmed the full order and agent has their name. Call confirm_order now."
+                        }
+                    },
+                    {
+                        "id": "edge-order-to-greeting",
+                        "destination_node_id": "start-node-greeting",
+                        "transition_condition": {
+                            "type": "prompt",
+                            "prompt": "Customer wants to go back or start over."
+                        }
+                    }
+                ],
+                "display_position": {
+                    "x": 650.0,
+                    "y": 200.0
+                }
+            },
+            {
+                "id": "node-confirm-order",
+                "name": "confirm_order",
+                "type": "function",
+                "tool_type": "local",
+                "tool_id": "tool-confirm-order",
+                "speak_during_execution": true,
+                "wait_for_result": true,
+                "edges": [
+                    {
+                        "id": "edge-confirm-to-extract",
+                        "destination_node_id": "node-1773256395996",
+                        "transition_condition": {
+                            "type": "prompt",
+                            "prompt": "confirm_order tool completed."
+                        }
+                    }
+                ],
+                "else_edge": {
+                    "id": "node-confirm-order-else-edge",
+                    "destination_node_id": "node-order-taking",
+                    "transition_condition": {
+                        "type": "prompt",
+                        "prompt": "Else"
+                    }
+                },
+                "display_position": {
+                    "x": 950.0,
+                    "y": 200.0
+                }
+            },
+            {
+                "id": "node-1773256395996",
+                "name": "extract_dynamic_variables",
+                "type": "extract_dynamic_variables",
+                "variables": [
+                    {
+                        "name": "customer_name",
+                        "type": "string",
+                        "description": "The full name of the customer as stated during the call. Empty string if not provided."
+                    },
+                    {
+                        "name": "order_items_summary",
+                        "type": "string",
+                        "description": "Comma-separated list of all ordered items with quantities and special instructions. Example: '2x Cheeseburger no pickles, 1x Large Fries'. Empty string if no order yet."
+                    },
+                    {
+                        "name": "order_type",
+                        "type": "string",
+                        "description": "Type of order. One of: pickup, delivery, dine_in, reservation. Empty string if not specified."
+                    },
+                    {
+                        "name": "special_notes",
+                        "type": "string",
+                        "description": "Any special requests, allergies, or notes not tied to a specific item. Empty string if none."
+                    },
+                    {
+                        "name": "reservation_date",
+                        "type": "string",
+                        "description": "Date of the reservation in YYYY-MM-DD format. Empty string if no reservation."
+                    },
+                    {
+                        "name": "party_size",
+                        "type": "string",
+                        "description": "Number of people for the reservation. Empty string if no reservation."
+                    }
+                ],
+                "edges": [
+                    {
+                        "id": "edge-extract-to-confirmed",
+                        "destination_node_id": "node-order-confirmed",
+                        "transition_condition": {
+                            "type": "prompt",
+                            "prompt": "Variables have been extracted."
+                        }
+                    }
+                ],
+                "else_edge": {
+                    "id": "edge-extract-else",
+                    "destination_node_id": "node-order-confirmed",
+                    "transition_condition": {
+                        "type": "prompt",
+                        "prompt": "Else"
+                    }
+                },
+                "display_position": {
+                    "x": 1100.0,
+                    "y": 200.0
+                }
+            },
+            {
+                "id": "node-order-confirmed",
+                "name": "Order_Confirmed",
+                "type": "conversation",
+                "instruction": {
+                    "type": "prompt",
+                    "text": "If the customer speaks while you are confirming the order, stop immediately. Do not repeat the confirmation. Listen and respond to what they said.\n\nThe order was submitted. Tell the customer it has been received and is being prepared.\nMention the estimated wait time (operator must fill in before going live).\nAsk once if there is anything else needed.\n- If they want more items, transition to Order_Taking.\n- If they are done, transition to End_Call."
+                },
+                "model_choice": {
+                    "type": "cascading",
+                    "model": "gpt-4.1-mini",
+                    "high_priority": false
+                },
+                "edges": [
+                    {
+                        "id": "edge-confirmed-to-order",
+                        "destination_node_id": "node-order-taking",
+                        "transition_condition": {
+                            "type": "prompt",
+                            "prompt": "Customer wants to add more items."
+                        }
+                    },
+                    {
+                        "id": "edge-confirmed-to-end",
+                        "destination_node_id": "end-call-node",
+                        "transition_condition": {
+                            "type": "prompt",
+                            "prompt": "Customer is done."
+                        }
+                    }
+                ],
+                "display_position": {
+                    "x": 1250.0,
+                    "y": 200.0
+                }
+            },
+            {
+                "id": "node-reservation",
+                "name": "Reservation",
+                "type": "conversation",
+                "instruction": {
+                    "type": "prompt",
+                    "text": "Collect reservation details step by step.\n\nSTEP 1 — Ask for the date they want to reserve.\nSTEP 2 — Ask for the time.\nSTEP 3 — Ask for the number of people in the party.\nSTEP 4 — Ask for the customer's name if not already known.\nSTEP 5 — Ask for any special requests (birthday, high chair, window seat, etc.).\nSTEP 6 — Read the full reservation details back clearly. Example: 'Table for 4 on Friday March 15th at 7pm under Mohamed — does that look right?'\nSTEP 7 — Once confirmed, transition to the confirm_reservation function node."
+                },
+                "model_choice": {
+                    "type": "cascading",
+                    "model": "gpt-4.1-mini",
+                    "high_priority": false
+                },
+                "edges": [
+                    {
+                        "id": "edge-reservation-to-confirm",
+                        "destination_node_id": "node-confirm-reservation",
+                        "transition_condition": {
+                            "type": "prompt",
+                            "prompt": "Customer confirmed the reservation details and agent has their name."
+                        }
+                    },
+                    {
+                        "id": "edge-reservation-to-greeting",
+                        "destination_node_id": "start-node-greeting",
+                        "transition_condition": {
+                            "type": "prompt",
+                            "prompt": "Customer wants to go back or cancel."
+                        }
+                    }
+                ],
+                "display_position": {
+                    "x": 438.0,
+                    "y": 900.0
+                }
+            },
+            {
+                "id": "node-confirm-reservation",
+                "name": "confirm_reservation",
+                "type": "function",
+                "tool_type": "local",
+                "tool_id": "tool-confirm-reservation",
+                "speak_during_execution": true,
+                "wait_for_result": true,
+                "edges": [
+                    {
+                        "id": "edge-confirm-res-to-confirmed",
+                        "destination_node_id": "node-reservation-confirmed",
+                        "transition_condition": {
+                            "type": "prompt",
+                            "prompt": "confirm_reservation tool completed."
+                        }
+                    }
+                ],
+                "else_edge": {
+                    "id": "edge-confirm-res-else",
+                    "destination_node_id": "node-reservation",
+                    "transition_condition": {
+                        "type": "prompt",
+                        "prompt": "Else"
+                    }
+                },
+                "display_position": {
+                    "x": 774.0,
+                    "y": 900.0
+                }
+            },
+            {
+                "id": "node-reservation-confirmed",
+                "name": "Reservation_Confirmed",
+                "type": "conversation",
+                "instruction": {
+                    "type": "prompt",
+                    "text": "The reservation was submitted. Tell the customer it has been confirmed.\nRepeat the key details once: date, time, party size, name.\nAsk once if there is anything else needed.\n- If they want to order food as well, transition to Order_Taking.\n- If they are done, transition to End_Call."
+                },
+                "model_choice": {
+                    "type": "cascading",
+                    "model": "gpt-4.1-mini",
+                    "high_priority": false
+                },
+                "edges": [
+                    {
+                        "id": "edge-res-confirmed-to-order",
+                        "destination_node_id": "node-order-taking",
+                        "transition_condition": {
+                            "type": "prompt",
+                            "prompt": "Customer wants to place a food order as well."
+                        }
+                    },
+                    {
+                        "id": "edge-res-confirmed-to-end",
+                        "destination_node_id": "end-call-node",
+                        "transition_condition": {
+                            "type": "prompt",
+                            "prompt": "Customer is done."
+                        }
+                    }
+                ],
+                "display_position": {
+                    "x": 1110.0,
+                    "y": 900.0
+                }
+            },
+            {
+                "id": "node-inquiry",
+                "name": "Inquiry",
+                "type": "conversation",
+                "instruction": {
+                    "type": "prompt",
+                    "text": "Answer the customer's question using {{restaurant_info}} as your source of truth.\nIf you do not know the answer, say you will connect them with a team member. Then transition to End_Call.\n- If customer decides to order, transition to Order_Taking.\n- If customer wants a reservation, transition to Reservation.\n- If they are done, transition to End_Call."
+                },
+                "model_choice": {
+                    "type": "cascading",
+                    "model": "gpt-4.1-mini",
+                    "high_priority": false
+                },
+                "edges": [
+                    {
+                        "id": "edge-inquiry-to-order",
+                        "destination_node_id": "node-order-taking",
+                        "transition_condition": {
+                            "type": "prompt",
+                            "prompt": "Customer decides to place an order."
+                        }
+                    },
+                    {
+                        "id": "edge-inquiry-to-reservation",
+                        "destination_node_id": "node-reservation",
+                        "transition_condition": {
+                            "type": "prompt",
+                            "prompt": "Customer wants to make a reservation after their inquiry."
+                        }
+                    },
+                    {
+                        "id": "edge-inquiry-to-end",
+                        "destination_node_id": "end-call-node",
+                        "transition_condition": {
+                            "type": "prompt",
+                            "prompt": "Customer's questions are answered and they are ready to end the call."
+                        }
+                    }
+                ],
+                "display_position": {
+                    "x": 650.0,
+                    "y": 650.0
+                }
+            },
+            {
+                "id": "end-call-node",
+                "name": "End_Call",
+                "type": "end",
+                "instruction": {
+                    "type": "prompt",
+                    "text": "Say a brief, warm goodbye and end the call. Do not ask additional questions."
+                },
+                "display_position": {
+                    "x": 1550.0,
+                    "y": 400.0
+                }
+            }
+        ],
+        "start_node_id": "start-node-greeting",
+        "start_speaker": "agent",
+        "tools": [
+            {
+                "tool_id": "tool-confirm-order",
+                "name": "confirm_order",
+                "description": "Submits the confirmed order to the restaurant system. Call only after the customer has verbally confirmed their full order and you have their name.",
+                "type": "custom",
+                "method": "POST",
+                "url": "https://your-server.com/api/retell/order-confirm",
+                "headers": {},
+                "query_params": {},
+                "parameter_type": "json",
+                "args_at_root": true,
+                "timeout_ms": 15000,
+                "speak_during_execution": true,
+                "response_variables": {
+                    "order_id": "$.order_id",
+                    "confirmation_message": "$.message"
+                },
+                "parameters": {
+                    "type": "object",
+                    "required": [
+                        "customer_name",
+                        "customer_phone",
+                        "order_items",
+                        "order_type"
+                    ],
+                    "properties": {
+                        "customer_name": {
+                            "type": "string",
+                            "description": "Name of the customer placing the order."
+                        },
+                        "customer_phone": {
+                            "type": "string",
+                            "description": "Phone number from {{customer_phone}} dynamic variable."
+                        },
+                        "order_items": {
+                            "type": "array",
+                            "description": "List of items in the confirmed order.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "item": {
+                                        "type": "string",
+                                        "description": "Name of the menu item."
+                                    },
+                                    "quantity": {
+                                        "type": "integer",
+                                        "description": "Number ordered."
+                                    },
+                                    "special_instructions": {
+                                        "type": "string",
+                                        "description": "Any special instructions, or empty string."
+                                    }
+                                },
+                                "required": [
+                                    "item",
+                                    "quantity"
+                                ]
+                            }
+                        },
+                        "order_type": {
+                            "type": "string",
+                            "description": "One of: pickup, delivery, dine_in. Ask the customer before calling this tool."
+                        },
+                        "delivery_address": {
+                            "type": "string",
+                            "description": "Full delivery address. Required if order_type is delivery. Empty string otherwise."
+                        },
+                        "total_amount": {
+                            "type": "number",
+                            "description": "Calculated total of all items with any applicable discounts applied."
+                        }
+                    }
+                }
+            },
+            {
+                "tool_id": "tool-confirm-reservation",
+                "name": "confirm_reservation",
+                "description": "Submits the confirmed reservation to the restaurant system. Call only after customer has verbally confirmed all reservation details and you have their name.",
+                "type": "custom",
+                "method": "POST",
+                "url": "https://your-server.com/api/retell/reservation-confirm",
+                "headers": {},
+                "query_params": {},
+                "parameter_type": "json",
+                "args_at_root": true,
+                "timeout_ms": 15000,
+                "speak_during_execution": true,
+                "response_variables": {
+                    "reservation_id": "$.reservation_id",
+                    "confirmation_message": "$.message"
+                },
+                "parameters": {
+                    "type": "object",
+                    "required": [
+                        "customer_name",
+                        "customer_phone",
+                        "reservation_date",
+                        "reservation_time",
+                        "party_size"
+                    ],
+                    "properties": {
+                        "customer_name": {
+                            "type": "string",
+                            "description": "Name for the reservation."
+                        },
+                        "customer_phone": {
+                            "type": "string",
+                            "description": "Customer phone number from {{customer_phone}} dynamic variable."
+                        },
+                        "reservation_date": {
+                            "type": "string",
+                            "description": "Date of reservation in YYYY-MM-DD format."
+                        },
+                        "reservation_time": {
+                            "type": "string",
+                            "description": "Time of reservation in HH:MM 24-hour format."
+                        },
+                        "party_size": {
+                            "type": "integer",
+                            "description": "Number of people in the party."
+                        },
+                        "special_requests": {
+                            "type": "string",
+                            "description": "Any special requests from the customer. Empty string if none."
+                        }
+                    }
+                }
+            }
+        ],
+        "model_choice": {
+            "type": "cascading",
+            "model": "gpt-4.1-mini",
+            "high_priority": false
+        },
+        "model_temperature": 0,
+        "tool_call_strict_mode": true,
+        "knowledge_base_ids": [],
+        "kb_config": {
+            "top_k": 3,
+            "filter_score": 0.6
+        },
+        "default_dynamic_variables": {
+            "customer_name": "",
+            "is_returning_customer": "false",
+            "customer_phone": "",
+            "kitchen_is_open": "true",
+            "store_is_open": "true",
+            "restaurant_info": "We are open daily from 11am to 10pm.",
+            "menu": "Menu not loaded yet. Please call back shortly."
+        },
+        "begin_tag_display_position": {
+            "x": 112.0,
+            "y": 325.0
+        },
+        "is_published": false,
+        "flex_mode": true,
+        "is_transfer_cf": false
+    }
+}
