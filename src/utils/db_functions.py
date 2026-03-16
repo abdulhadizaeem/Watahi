@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from fastapi import status as http_status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update, delete
+from sqlalchemy.orm import selectinload
 
 from src.utils.db import (
     User, Caller, CallLog, Reservation, AgentSettings, Order,
@@ -112,7 +113,7 @@ async def update_call_log(db: AsyncSession, call_id: str, **kwargs) -> None:
 
 
 async def get_call_log_by_call_id(db: AsyncSession, call_id: str) -> CallLog | None:
-    result = await db.execute(select(CallLog).where(CallLog.call_id == call_id))
+    result = await db.execute(select(CallLog).options(selectinload(CallLog.order_details)).where(CallLog.call_id == call_id))
     return result.scalar_one_or_none()
 
 
@@ -123,7 +124,7 @@ async def list_call_logs(
     status_filter: str | None,
     order_booked_filter: bool | None,
 ) -> list[CallLog]:
-    query = select(CallLog).order_by(CallLog.created_at.desc()).offset(skip).limit(limit)
+    query = select(CallLog).options(selectinload(CallLog.order_details)).order_by(CallLog.created_at.desc()).offset(skip).limit(limit)
     if status_filter is not None:
         query = query.where(CallLog.call_status == status_filter)
     if order_booked_filter is not None:

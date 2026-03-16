@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timezone, date
 
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped
+from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped, relationship
 from sqlalchemy import String, Boolean, DateTime, Text, Integer, BigInteger, JSON, Date, Float, ForeignKey
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -68,6 +68,14 @@ class CallLog(Base):
     reservation_date: Mapped[str | None] = mapped_column(String, nullable=True)
     party_size: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    order_details: Mapped["Order"] = relationship(
+        "Order",
+        primaryjoin="Order.call_id == CallLog.call_id",
+        foreign_keys="[Order.call_id]",
+        uselist=False,
+        lazy="selectin"
+    )
 
 
 class Reservation(Base):

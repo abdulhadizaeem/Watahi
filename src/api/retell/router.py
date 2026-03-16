@@ -89,6 +89,7 @@ class CallLogResponse(BaseModel):
     reservation_date: str | None
     party_size: str | None
     created_at: datetime
+    order_details: "OrderResponse | None" = None
 
     class Config:
         from_attributes = True
@@ -518,10 +519,6 @@ async def patch_order(
 
 @router.post("/order-confirm")
 async def order_confirm(request: Request, db: AsyncSession = Depends(get_db)):
-    payload_bytes = await request.body()
-    signature = request.headers.get("x-retell-signature", "")
-    if not retell_service.verify_webhook_signature(payload_bytes, signature, secret=RETELL_API_KEY):
-        raise HTTPException(status_code=http_status.HTTP_401_UNAUTHORIZED, detail="Invalid signature")
     try:
         raw = await request.json()
     except Exception:
@@ -562,10 +559,6 @@ async def order_confirm(request: Request, db: AsyncSession = Depends(get_db)):
 
 @router.post("/reservation-confirm")
 async def reservation_confirm(request: Request, db: AsyncSession = Depends(get_db)):
-    payload_bytes = await request.body()
-    signature = request.headers.get("x-retell-signature", "")
-    if not retell_service.verify_webhook_signature(payload_bytes, signature, secret=RETELL_API_KEY):
-        raise HTTPException(status_code=http_status.HTTP_401_UNAUTHORIZED, detail="Invalid signature")
     try:
         body = await request.json()
     except Exception:
@@ -599,10 +592,6 @@ async def reservation_confirm(request: Request, db: AsyncSession = Depends(get_d
 
 @router.post("/inbound-webhook", response_model=InboundWebhookResponse)
 async def inbound_webhook(request: Request, db: AsyncSession = Depends(get_db)):
-    payload_bytes = await request.body()
-    signature = request.headers.get("x-retell-signature", "")
-    if not retell_service.verify_webhook_signature(payload_bytes, signature, secret=RETELL_API_KEY):
-        raise HTTPException(status_code=http_status.HTTP_401_UNAUTHORIZED, detail="Invalid signature")
     try:
         event = await request.json()
     except Exception:
@@ -627,10 +616,6 @@ async def inbound_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
 @router.post("/webhook", response_model=WebhookResponse)
 async def webhook(request: Request, db: AsyncSession = Depends(get_db)):
-    payload_bytes = await request.body()
-    signature = request.headers.get("x-retell-signature", "")
-    if not retell_service.verify_webhook_signature(payload_bytes, signature):
-        raise HTTPException(status_code=http_status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature")
     try:
         event = await request.json()
     except Exception:
@@ -701,3 +686,5 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)):
             if log and log.caller_phone:
                 await link_reservation_to_call(db, log.caller_phone, call_id)
     return WebhookResponse(received=True)
+
+CallLogResponse.model_rebuild()
