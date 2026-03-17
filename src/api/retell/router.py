@@ -37,6 +37,7 @@ from src.utils.db_functions import (
 from src.services import retell_service
 
 RETELL_API_KEY = os.getenv("RETELL_API_KEY", "")
+RETELL_WEBHOOK_SECRET = os.getenv("RETELL_WEBHOOK_SECRET", "")
 
 router = APIRouter(prefix="/api/retell", tags=["retell"])
 
@@ -135,6 +136,7 @@ class UpdateFlowRequest(BaseModel):
     default_dynamic_variables: dict | None = None
     model_choice: dict | None = None
     model_temperature: float | None = Field(default=None, ge=0, le=1)
+    begin_message: str | None = None
 
 
 class AddKnowledgeBaseRequest(BaseModel):
@@ -592,6 +594,10 @@ async def reservation_confirm(request: Request, db: AsyncSession = Depends(get_d
 
 @router.post("/inbound-webhook", response_model=InboundWebhookResponse)
 async def inbound_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    payload_bytes = await request.body()
+    signature = request.headers.get("x-retell-signature", "")
+    if signature and not retell_service.verify_webhook_signature(payload_bytes, signature, secret=RETELL_API_KEY):
+        raise HTTPException(status_code=http_status.HTTP_401_UNAUTHORIZED, detail="Invalid signature")
     try:
         event = await request.json()
     except Exception:
@@ -616,6 +622,10 @@ async def inbound_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
 @router.post("/webhook", response_model=WebhookResponse)
 async def webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    payload_bytes = await request.body()
+    signature = request.headers.get("x-retell-signature", "")
+    if signature and not retell_service.verify_webhook_signature(payload_bytes, signature, secret=RETELL_WEBHOOK_SECRET):
+        raise HTTPException(status_code=http_status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature")
     try:
         event = await request.json()
     except Exception:

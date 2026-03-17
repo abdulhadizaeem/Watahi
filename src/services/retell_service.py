@@ -45,6 +45,8 @@ async def update_conversation_flow(payload: dict) -> dict:
         patch_body["model_temperature"] = payload["model_temperature"]
     if "knowledge_base_ids" in payload:
         patch_body["knowledge_base_ids"] = payload["knowledge_base_ids"]
+    if payload.get("begin_message") is not None:
+        patch_body["begin_message"] = payload["begin_message"]
     if "nodes" in payload and payload["nodes"]:
         current = await get_conversation_flow()
         existing_nodes = {n["id"]: n for n in current.get("nodes", [])}
