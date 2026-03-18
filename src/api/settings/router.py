@@ -31,6 +31,7 @@ class AgentSettingsResponse(BaseModel):
     prompt_instructions: str | None
     locked_prompt_tail: str = retell_service.LOCKED_PROMPT_TAIL
     updated_at: datetime
+    retell_live: dict | None = None
 
     class Config:
         from_attributes = True
@@ -58,8 +59,31 @@ async def get_settings(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    import logging
+    logger = logging.getLogger(__name__)
     settings = await get_agent_settings(db)
-    return AgentSettingsResponse.model_validate(settings)
+    retell_live = None
+    try:
+        retell_live = await retell_service.get_agent()
+        if retell_live is not None:
+            settings = await update_agent_settings(
+                db,
+                voice_id=retell_live.get("voice_id", settings.voice_id),
+                voice_speed=retell_live.get("voice_speed", settings.voice_speed),
+                interruption_sensitivity=retell_live.get("interruption_sensitivity", settings.interruption_sensitivity),
+                responsiveness=retell_live.get("responsiveness", settings.responsiveness),
+            )
+    except Exception as e:
+        logger.error("Failed to fetch live settings from Retell: %s", e)
+
+    response = AgentSettingsResponse.model_validate(settings)
+    response.retell_live = retell_live
+    return response
+
+
+@router.get("/retell")
+async def get_retell_live(_: User = Depends(get_current_user)):
+    return await retell_service.get_agent()
 
 
 @router.patch("", response_model=AgentSettingsResponse)
@@ -71,14 +95,23 @@ async def patch_settings(
     import logging
     logger = logging.getLogger(__name__)
     updates = body.model_dump(exclude_none=True)
-    voice_fields = {"voice_id", "voice_speed", "voice_temperature", "interruption_sensitivity", "responsiveness"}
+    voice_fields = {"voice_id", "voice_speed", "interruption_sensitivity", "responsiveness"}
     voice_updates = {k: v for k, v in updates.items() if k in voice_fields}
+    
+    if "voice_id" in voice_updates:
+        valid_prefixes = ("11labs-", "cartesia-", "retell-", "openai-", "deepgram-", "minimax-")
+        if not voice_updates["voice_id"].startswith(valid_prefixes):
+            logger.error("Invalid voice_id format: %s", voice_updates["voice_id"])
+            voice_updates.pop("voice_id")
+            
     is_active = updates.get("is_active")
     prompt_instructions = updates.get("prompt_instructions")
     settings = await update_agent_settings(db, **updates)
     if voice_updates:
         try:
-            await retell_service.update_agent_voice_settings(**voice_updates)
+            logger.warning("Sending to Retell update-agent: %s", voice_updates)
+            result = await retell_service.update_agent_voice_settings(**voice_updates)
+            logger.warning("Retell update-agent response: %s", result)
         except Exception as e:
             logger.error("Failed to sync voice settings to Retell: %s", e)
     if is_active is not None:

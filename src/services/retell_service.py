@@ -5,10 +5,7 @@ import hmac
 import httpx
 from src.utils.db import Caller
 
-RETELL_API_KEY = os.getenv("RETELL_API_KEY", "")
-RETELL_AGENT_ID = os.getenv("RETELL_AGENT_ID", "")
 RETELL_WEBHOOK_SECRET = os.getenv("RETELL_WEBHOOK_SECRET", "")
-RETELL_CONVERSATION_FLOW_ID = os.getenv("RETELL_CONVERSATION_FLOW_ID", "")
 BASE_URL = "https://api.retellai.com"
 
 LOCKED_PROMPT_TAIL = (
@@ -31,7 +28,8 @@ def assemble_global_prompt(instructions: str) -> str:
 
 
 def _headers() -> dict:
-    return {"Authorization": f"Bearer {RETELL_API_KEY}", "Content-Type": "application/json"}
+    api_key = os.getenv("RETELL_API_KEY", "")
+    return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
 
 async def get_call(call_id: str) -> dict:
@@ -41,10 +39,22 @@ async def get_call(call_id: str) -> dict:
         return response.json()
 
 
-async def get_conversation_flow() -> dict:
+async def get_agent() -> dict:
+    agent_id = os.getenv("RETELL_AGENT_ID", "")
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"{BASE_URL}/get-conversation-flow/{RETELL_CONVERSATION_FLOW_ID}",
+            f"{BASE_URL}/get-agent/{agent_id}",
+            headers=_headers(),
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+async def get_conversation_flow() -> dict:
+    flow_id = os.getenv("RETELL_CONVERSATION_FLOW_ID", "")
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{BASE_URL}/get-conversation-flow/{flow_id}",
             headers=_headers(),
         )
         response.raise_for_status()
@@ -52,6 +62,7 @@ async def get_conversation_flow() -> dict:
 
 
 async def update_conversation_flow(payload: dict) -> dict:
+    flow_id = os.getenv("RETELL_CONVERSATION_FLOW_ID", "")
     patch_body: dict = {}
     if "global_prompt" in payload:
         patch_body["global_prompt"] = payload["global_prompt"]
@@ -77,7 +88,7 @@ async def update_conversation_flow(payload: dict) -> dict:
         patch_body["nodes"] = list(existing_nodes.values())
     async with httpx.AsyncClient() as client:
         response = await client.patch(
-            f"{BASE_URL}/update-conversation-flow/{RETELL_CONVERSATION_FLOW_ID}",
+            f"{BASE_URL}/update-conversation-flow/{flow_id}",
             headers=_headers(),
             json=patch_body,
         )
@@ -86,10 +97,11 @@ async def update_conversation_flow(payload: dict) -> dict:
 
 
 async def update_agent_voice_settings(**kwargs) -> dict:
+    agent_id = os.getenv("RETELL_AGENT_ID", "")
     payload = {k: v for k, v in kwargs.items() if v is not None}
     async with httpx.AsyncClient() as client:
         response = await client.patch(
-            f"{BASE_URL}/v2/update-agent/{RETELL_AGENT_ID}",
+            f"{BASE_URL}/update-agent/{agent_id}",
             headers=_headers(),
             json=payload,
         )
@@ -98,11 +110,19 @@ async def update_agent_voice_settings(**kwargs) -> dict:
 
 
 async def toggle_agent_active(is_active: bool) -> dict:
+    agent_id = os.getenv("RETELL_AGENT_ID", "")
+    settings_payload = {}
+    if not is_active:
+        settings_payload["end_call_after_silence_ms"] = 1000
+        settings_payload["max_call_duration_ms"] = 60000
+    else:
+        settings_payload["end_call_after_silence_ms"] = 15000
+        settings_payload["max_call_duration_ms"] = 3600000
     async with httpx.AsyncClient() as client:
         response = await client.patch(
-            f"{BASE_URL}/v2/update-agent/{RETELL_AGENT_ID}",
+            f"{BASE_URL}/update-agent/{agent_id}",
             headers=_headers(),
-            json={"enable_inbound": is_active},
+            json=settings_payload,
         )
         response.raise_for_status()
         return response.json()

@@ -150,6 +150,8 @@ class InboundDynamicVariables(BaseModel):
     kitchen_is_open: str
     store_is_open: str
     menu: str
+    closed_greeting: str
+    open_greeting: str
 
 
 class InboundCallInnerResponse(BaseModel):
@@ -620,6 +622,8 @@ async def inbound_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     dynamic_vars["kitchen_is_open"] = kitchen_open
     dynamic_vars["store_is_open"] = store_open
     dynamic_vars["menu"] = await build_menu_text(db)
+    dynamic_vars["closed_greeting"] = settings.closed_greeting or "We are currently closed. Please call back during our business hours."
+    dynamic_vars["open_greeting"] = settings.open_greeting or ""
     return InboundWebhookResponse(
         call_inbound=InboundCallInnerResponse(
             dynamic_variables=InboundDynamicVariables(**dynamic_vars)
