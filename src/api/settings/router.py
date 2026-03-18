@@ -50,7 +50,6 @@ class UpdateAgentSettingsRequest(BaseModel):
     closed_greeting: str | None = None
     open_greeting: str | None = None
     restaurant_timezone: str | None = None
-    force_store_open: bool | None = None
     prompt_instructions: str | None = None
 
 
@@ -69,6 +68,8 @@ async def patch_settings(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    import logging
+    logger = logging.getLogger(__name__)
     updates = body.model_dump(exclude_none=True)
     voice_fields = {"voice_id", "voice_speed", "voice_temperature", "interruption_sensitivity", "responsiveness"}
     voice_updates = {k: v for k, v in updates.items() if k in voice_fields}
@@ -76,10 +77,44 @@ async def patch_settings(
     prompt_instructions = updates.get("prompt_instructions")
     settings = await update_agent_settings(db, **updates)
     if voice_updates:
-        await retell_service.update_agent_voice_settings(**voice_updates)
+        try:
+            await retell_service.update_agent_voice_settings(**voice_updates)
+        except Exception as e:
+            logger.error("Failed to sync voice settings to Retell: %s", e)
     if is_active is not None:
-        await retell_service.toggle_agent_active(is_active)
+        try:
+            await retell_service.toggle_agent_active(is_active)
+        except Exception as e:
+            logger.error("Failed to sync active status to Retell: %s", e)
     if prompt_instructions is not None:
-        full_prompt = retell_service.assemble_global_prompt(prompt_instructions)
-        await retell_service.update_conversation_flow({"global_prompt": full_prompt})
+        try:
+            full_prompt = retell_service.assemble_global_prompt(prompt_instructions)
+            await retell_service.update_conversation_flow({"global_prompt": full_prompt})
+        except Exception as e:
+            logger.error("Failed to sync prompt to Retell: %s", e)
     return AgentSettingsResponse.model_validate(settings)
+
+
+class StoreStatusRequest(BaseModel):
+    open: bool | None = None
+
+
+class StoreStatusResponse(BaseModel):
+    force_store_open: bool | None
+    message: str
+
+
+@router.post("/store-status", response_model=StoreStatusResponse)
+async def set_store_status(
+    body: StoreStatusRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    settings = await update_agent_settings(db, force_store_open=body.open)
+    if body.open is True:
+        msg = "Store forced OPEN. Time-based hours are bypassed."
+    elif body.open is False:
+        msg = "Store forced CLOSED. Time-based hours are bypassed."
+    else:
+        msg = "Store set to AUTO. Time-based hours are active."
+    return StoreStatusResponse(force_store_open=settings.force_store_open, message=msg)

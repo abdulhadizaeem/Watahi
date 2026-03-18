@@ -89,7 +89,7 @@ async def update_agent_voice_settings(**kwargs) -> dict:
     payload = {k: v for k, v in kwargs.items() if v is not None}
     async with httpx.AsyncClient() as client:
         response = await client.patch(
-            f"{BASE_URL}/update-agent/{RETELL_AGENT_ID}",
+            f"{BASE_URL}/v2/update-agent/{RETELL_AGENT_ID}",
             headers=_headers(),
             json=payload,
         )
@@ -100,7 +100,7 @@ async def update_agent_voice_settings(**kwargs) -> dict:
 async def toggle_agent_active(is_active: bool) -> dict:
     async with httpx.AsyncClient() as client:
         response = await client.patch(
-            f"{BASE_URL}/update-agent/{RETELL_AGENT_ID}",
+            f"{BASE_URL}/v2/update-agent/{RETELL_AGENT_ID}",
             headers=_headers(),
             json={"enable_inbound": is_active},
         )
