@@ -112,6 +112,9 @@ class AgentSettings(Base):
     store_close_time: Mapped[str] = mapped_column(String, default="22:00")
     closed_greeting: Mapped[str] = mapped_column(String, default="We are currently closed. Please call back during business hours.")
     open_greeting: Mapped[str | None] = mapped_column(String, nullable=True)
+    restaurant_timezone: Mapped[str] = mapped_column(String, default="America/New_York")
+    force_store_open: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    prompt_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

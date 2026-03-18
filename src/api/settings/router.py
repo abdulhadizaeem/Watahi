@@ -26,6 +26,10 @@ class AgentSettingsResponse(BaseModel):
     store_close_time: str
     closed_greeting: str
     open_greeting: str | None
+    restaurant_timezone: str
+    force_store_open: bool | None
+    prompt_instructions: str | None
+    locked_prompt_tail: str = retell_service.LOCKED_PROMPT_TAIL
     updated_at: datetime
 
     class Config:
@@ -45,6 +49,9 @@ class UpdateAgentSettingsRequest(BaseModel):
     store_close_time: str | None = None
     closed_greeting: str | None = None
     open_greeting: str | None = None
+    restaurant_timezone: str | None = None
+    force_store_open: bool | None = None
+    prompt_instructions: str | None = None
 
 
 @router.get("", response_model=AgentSettingsResponse)
@@ -66,9 +73,13 @@ async def patch_settings(
     voice_fields = {"voice_id", "voice_speed", "voice_temperature", "interruption_sensitivity", "responsiveness"}
     voice_updates = {k: v for k, v in updates.items() if k in voice_fields}
     is_active = updates.get("is_active")
+    prompt_instructions = updates.get("prompt_instructions")
     settings = await update_agent_settings(db, **updates)
     if voice_updates:
         await retell_service.update_agent_voice_settings(**voice_updates)
     if is_active is not None:
         await retell_service.toggle_agent_active(is_active)
+    if prompt_instructions is not None:
+        full_prompt = retell_service.assemble_global_prompt(prompt_instructions)
+        await retell_service.update_conversation_flow({"global_prompt": full_prompt})
     return AgentSettingsResponse.model_validate(settings)

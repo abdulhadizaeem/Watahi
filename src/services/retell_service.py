@@ -11,6 +11,24 @@ RETELL_WEBHOOK_SECRET = os.getenv("RETELL_WEBHOOK_SECRET", "")
 RETELL_CONVERSATION_FLOW_ID = os.getenv("RETELL_CONVERSATION_FLOW_ID", "")
 BASE_URL = "https://api.retellai.com"
 
+LOCKED_PROMPT_TAIL = (
+    "\n\nDYNAMIC VARIABLES AVAILABLE (do not edit this section):\n"
+    "- {{customer_name}} — caller's saved name, or empty string if new\n"
+    "- {{is_returning_customer}} — 'true' if caller has called before, 'false' if new\n"
+    "- {{customer_phone}} — caller's phone number in E.164 format\n"
+    "- {{kitchen_is_open}} — 'true' if kitchen is currently accepting orders, 'false' if not\n"
+    "- {{store_is_open}} — 'true' if the restaurant is currently open, 'false' if closed\n"
+    "- {{menu}} — the complete current restaurant menu with all available items, prices, "
+    "allergens, and today's specials. This is your ONLY source of truth for menu items and "
+    "pricing. Never reference items not listed in {{menu}}.\n"
+    "- {{restaurant_info}} — general restaurant information."
+)
+
+
+def assemble_global_prompt(instructions: str) -> str:
+    return instructions.rstrip() + LOCKED_PROMPT_TAIL
+
+
 
 def _headers() -> dict:
     return {"Authorization": f"Bearer {RETELL_API_KEY}", "Content-Type": "application/json"}

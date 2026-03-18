@@ -605,9 +605,20 @@ async def inbound_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     await upsert_caller(db, from_number, existing_caller.customer_name if existing_caller else None)
     await update_caller_last_called(db, from_number)
     settings = await get_agent_settings(db)
-    now_hhmm = datetime.now(timezone.utc).strftime("%H:%M")
-    dynamic_vars["kitchen_is_open"] = "true" if _check_business_hours(now_hhmm, settings.kitchen_open_time, settings.kitchen_close_time) else "false"
-    dynamic_vars["store_is_open"] = "true" if _check_business_hours(now_hhmm, settings.store_open_time, settings.store_close_time) else "false"
+    from zoneinfo import ZoneInfo
+    try:
+        tz = ZoneInfo(settings.restaurant_timezone)
+    except Exception:
+        tz = ZoneInfo("America/New_York")
+    now_hhmm = datetime.now(tz).strftime("%H:%M")
+    if settings.force_store_open is not None:
+        store_open = "true" if settings.force_store_open else "false"
+        kitchen_open = store_open
+    else:
+        store_open = "true" if _check_business_hours(now_hhmm, settings.store_open_time, settings.store_close_time) else "false"
+        kitchen_open = "true" if _check_business_hours(now_hhmm, settings.kitchen_open_time, settings.kitchen_close_time) else "false"
+    dynamic_vars["kitchen_is_open"] = kitchen_open
+    dynamic_vars["store_is_open"] = store_open
     dynamic_vars["menu"] = await build_menu_text(db)
     return InboundWebhookResponse(
         call_inbound=InboundCallInnerResponse(
