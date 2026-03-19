@@ -162,6 +162,9 @@ class InboundDynamicVariables(BaseModel):
     restaurant_name: str
     kitchen_open_time: str
     kitchen_close_time: str
+    restaurant_info: str
+    wait_time_pickup: str
+    wait_time_delivery: str
 
 
 class InboundCallInnerResponse(BaseModel):
@@ -683,6 +686,9 @@ async def inbound_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     dynamic_vars["pickup_address"] = settings.pickup_address or ""
     dynamic_vars["delivery_address"] = settings.delivery_address or ""
     dynamic_vars["restaurant_name"] = settings.restaurant_name or "our restaurant"
+    dynamic_vars["restaurant_info"] = settings.restaurant_info or "We are open daily from 11am to 10pm."
+    dynamic_vars["wait_time_pickup"] = settings.wait_time_pickup or "15"
+    dynamic_vars["wait_time_delivery"] = settings.wait_time_delivery or "30"
     dynamic_vars["kitchen_open_time"] = settings.kitchen_open_time
     dynamic_vars["kitchen_close_time"] = settings.kitchen_close_time
     return InboundWebhookResponse(

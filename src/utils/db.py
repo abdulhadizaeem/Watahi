@@ -117,6 +117,9 @@ class AgentSettings(Base):
     delivery_address: Mapped[str | None] = mapped_column(String, nullable=True)
     pickup_address: Mapped[str | None] = mapped_column(String, nullable=True)
     restaurant_name: Mapped[str] = mapped_column(String, default="our restaurant")
+    restaurant_info: Mapped[str] = mapped_column(Text, default="We are open daily from 11am to 10pm.")
+    wait_time_pickup: Mapped[str] = mapped_column(String, default="15")
+    wait_time_delivery: Mapped[str] = mapped_column(String, default="30")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

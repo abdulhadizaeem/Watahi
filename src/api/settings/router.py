@@ -46,6 +46,9 @@ class AgentSettingsResponse(BaseModel):
     delivery_address: str | None
     pickup_address: str | None
     restaurant_name: str
+    restaurant_info: str = "We are open daily from 11am to 10pm."
+    wait_time_pickup: str = "15"
+    wait_time_delivery: str = "30"
     locked_prompt_tail: str = retell_service.LOCKED_PROMPT_TAIL
     updated_at: datetime
     retell_live: dict | None = None
@@ -72,6 +75,9 @@ class UpdateAgentSettingsRequest(BaseModel):
     delivery_address: str | None = None
     pickup_address: str | None = None
     restaurant_name: str | None = None
+    restaurant_info: str | None = None
+    wait_time_pickup: str | None = None
+    wait_time_delivery: str | None = None
 
 
 class VoiceItem(BaseModel):
