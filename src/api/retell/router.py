@@ -33,6 +33,11 @@ from src.utils.db_functions import (
     update_order,
     get_order_stats,
     get_recent_order_for_caller,
+    get_dashboard_stats,
+    get_calls_over_time,
+    get_orders_over_time,
+    get_top_repeat_callers,
+    get_sentiment_breakdown,
 )
 from src.services import retell_service
 
@@ -152,6 +157,11 @@ class InboundDynamicVariables(BaseModel):
     menu: str
     closed_greeting: str
     open_greeting: str
+    pickup_address: str
+    delivery_address: str
+    restaurant_name: str
+    kitchen_open_time: str
+    kitchen_close_time: str
 
 
 class InboundCallInnerResponse(BaseModel):
@@ -249,6 +259,31 @@ class OrderUpdateRequest(BaseModel):
     delivery_address: str | None = None
 
 
+class RepeatCallerItem(BaseModel):
+    phone: str
+    name: str
+    call_count: int
+
+
+class ReportSummary(BaseModel):
+    total_calls: int
+    total_orders: int
+    total_minutes: float
+    successful_calls: int
+    repeat_callers: int
+    new_callers: int
+    order_type_distribution: dict
+
+
+class ReportResponse(BaseModel):
+    period_days: int
+    summary: ReportSummary
+    calls_over_time: list[dict]
+    orders_over_time: list[dict]
+    top_repeat_callers: list[RepeatCallerItem]
+    sentiment_breakdown: dict
+
+
 class OrderConfirmRequest(BaseModel):
     customer_name: str
     customer_phone: str
@@ -256,6 +291,27 @@ class OrderConfirmRequest(BaseModel):
     order_type: str
     delivery_address: str = ""
     total_amount: float | None = None
+
+
+@router.get("/reports", response_model=ReportResponse)
+async def get_reports(
+    days: int = 7,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    summary = await get_dashboard_stats(db, days)
+    calls_over_time = await get_calls_over_time(db, days)
+    orders_over_time = await get_orders_over_time(db, days)
+    top_repeat_callers = await get_top_repeat_callers(db, days)
+    sentiment_breakdown = await get_sentiment_breakdown(db, days)
+    return ReportResponse(
+        period_days=days,
+        summary=ReportSummary(**summary),
+        calls_over_time=calls_over_time,
+        orders_over_time=orders_over_time,
+        top_repeat_callers=[RepeatCallerItem(**r) for r in top_repeat_callers],
+        sentiment_breakdown=sentiment_breakdown,
+    )
 
 
 @router.get("/calls", response_model=list[CallLogResponse])
@@ -613,17 +669,22 @@ async def inbound_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     except Exception:
         tz = ZoneInfo("America/New_York")
     now_hhmm = datetime.now(tz).strftime("%H:%M")
-    if settings.force_store_open is not None:
-        store_open = "true" if settings.force_store_open else "false"
-        kitchen_open = store_open
-    else:
+    if settings.is_active:
         store_open = "true" if _check_business_hours(now_hhmm, settings.store_open_time, settings.store_close_time) else "false"
         kitchen_open = "true" if _check_business_hours(now_hhmm, settings.kitchen_open_time, settings.kitchen_close_time) else "false"
+    else:
+        store_open = "false"
+        kitchen_open = "false"
     dynamic_vars["kitchen_is_open"] = kitchen_open
     dynamic_vars["store_is_open"] = store_open
     dynamic_vars["menu"] = await build_menu_text(db)
     dynamic_vars["closed_greeting"] = settings.closed_greeting or "We are currently closed. Please call back during our business hours."
     dynamic_vars["open_greeting"] = settings.open_greeting or ""
+    dynamic_vars["pickup_address"] = settings.pickup_address or ""
+    dynamic_vars["delivery_address"] = settings.delivery_address or ""
+    dynamic_vars["restaurant_name"] = settings.restaurant_name or "our restaurant"
+    dynamic_vars["kitchen_open_time"] = settings.kitchen_open_time
+    dynamic_vars["kitchen_close_time"] = settings.kitchen_close_time
     return InboundWebhookResponse(
         call_inbound=InboundCallInnerResponse(
             dynamic_variables=InboundDynamicVariables(**dynamic_vars)

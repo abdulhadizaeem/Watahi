@@ -597,3 +597,110 @@ async def get_recent_order_for_caller(
         .limit(1)
     )
     return result.scalar_one_or_none()
+
+
+async def get_dashboard_stats(db: AsyncSession, days: int = 7) -> dict:
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import func, select
+    from src.utils.db import CallLog, Order, Caller
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    total_calls = await db.scalar(select(func.count()).select_from(CallLog).where(CallLog.created_at >= since)) or 0
+    total_orders = await db.scalar(select(func.count()).select_from(Order).where(Order.created_at >= since)) or 0
+    total_minutes_ms = await db.scalar(select(func.sum(CallLog.duration_ms)).select_from(CallLog).where(CallLog.created_at >= since).where(CallLog.duration_ms.isnot(None))) or 0
+    total_minutes = round((total_minutes_ms or 0) / 60000, 1)
+    successful_calls = await db.scalar(select(func.count()).select_from(CallLog).where(CallLog.created_at >= since).where(CallLog.call_successful == True)) or 0
+    repeat_callers = await db.scalar(select(func.count()).select_from(Caller).where(Caller.last_called_at >= since).where(Caller.created_at < since)) or 0
+    new_callers = await db.scalar(select(func.count()).select_from(Caller).where(Caller.created_at >= since)) or 0
+    pickup_orders = await db.scalar(select(func.count()).select_from(Order).where(Order.created_at >= since).where(Order.order_type == "pickup")) or 0
+    delivery_orders = await db.scalar(select(func.count()).select_from(Order).where(Order.created_at >= since).where(Order.order_type == "delivery")) or 0
+    dine_in_orders = await db.scalar(select(func.count()).select_from(Order).where(Order.created_at >= since).where(Order.order_type == "dine_in")) or 0
+    return {
+        "total_calls": total_calls,
+        "total_orders": total_orders,
+        "total_minutes": total_minutes,
+        "successful_calls": successful_calls,
+        "repeat_callers": repeat_callers,
+        "new_callers": new_callers,
+        "order_type_distribution": {
+            "pickup": pickup_orders,
+            "delivery": delivery_orders,
+            "dine_in": dine_in_orders,
+        }
+    }
+
+
+async def get_calls_over_time(db: AsyncSession, days: int = 7) -> list:
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import func, select, cast, Date
+    from src.utils.db import CallLog
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    result = await db.execute(
+        select(cast(CallLog.created_at, Date).label("day"), func.count().label("calls"))
+        .where(CallLog.created_at >= since)
+        .group_by(cast(CallLog.created_at, Date))
+        .order_by(cast(CallLog.created_at, Date))
+    )
+    rows = result.all()
+    date_map = {str(r.day): r.calls for r in rows}
+    result_list = []
+    for i in range(days):
+        d = (datetime.now(timezone.utc) - timedelta(days=days - 1 - i)).date()
+        result_list.append({"date": str(d), "calls": date_map.get(str(d), 0)})
+    return result_list
+
+
+async def get_orders_over_time(db: AsyncSession, days: int = 7) -> list:
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import func, select, cast, Date
+    from src.utils.db import Order
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    result = await db.execute(
+        select(cast(Order.created_at, Date).label("day"), func.count().label("orders"))
+        .where(Order.created_at >= since)
+        .group_by(cast(Order.created_at, Date))
+        .order_by(cast(Order.created_at, Date))
+    )
+    rows = result.all()
+    date_map = {str(r.day): r.orders for r in rows}
+    result_list = []
+    for i in range(days):
+        d = (datetime.now(timezone.utc) - timedelta(days=days - 1 - i)).date()
+        result_list.append({"date": str(d), "orders": date_map.get(str(d), 0)})
+    return result_list
+
+
+async def get_top_repeat_callers(db: AsyncSession, days: int = 7, limit: int = 10) -> list:
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import func, select
+    from src.utils.db import CallLog
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    result = await db.execute(
+        select(CallLog.caller_phone, CallLog.customer_name, func.count().label("call_count"))
+        .where(CallLog.created_at >= since)
+        .where(CallLog.caller_phone != "")
+        .group_by(CallLog.caller_phone, CallLog.customer_name)
+        .having(func.count() > 1)
+        .order_by(func.count().desc())
+        .limit(limit)
+    )
+    rows = result.all()
+    return [
+        {"phone": r.caller_phone, "name": r.customer_name or "Unknown", "call_count": r.call_count}
+        for r in rows
+    ]
+
+
+async def get_sentiment_breakdown(db: AsyncSession, days: int = 7) -> dict:
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import func, select
+    from src.utils.db import CallLog
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    result = await db.execute(
+        select(CallLog.user_sentiment, func.count().label("count"))
+        .where(CallLog.created_at >= since)
+        .where(CallLog.user_sentiment.isnot(None))
+        .group_by(CallLog.user_sentiment)
+    )
+    rows = result.all()
+    return {r.user_sentiment: r.count for r in rows}
+

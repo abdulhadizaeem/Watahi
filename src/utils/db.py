@@ -113,8 +113,10 @@ class AgentSettings(Base):
     closed_greeting: Mapped[str] = mapped_column(String, default="We are currently closed. Please call back during business hours.")
     open_greeting: Mapped[str | None] = mapped_column(String, nullable=True)
     restaurant_timezone: Mapped[str] = mapped_column(String, default="America/New_York")
-    force_store_open: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     prompt_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    delivery_address: Mapped[str | None] = mapped_column(String, nullable=True)
+    pickup_address: Mapped[str | None] = mapped_column(String, nullable=True)
+    restaurant_name: Mapped[str] = mapped_column(String, default="our restaurant")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

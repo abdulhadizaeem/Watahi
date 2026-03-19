@@ -1,5 +1,6 @@
+import logging
 from datetime import datetime
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi import status as http_status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +11,20 @@ from src.utils.db_functions import get_agent_settings, update_agent_settings
 from src.services import retell_service
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+logger = logging.getLogger(__name__)
+
+
+def _detect_provider(voice_id: str) -> str:
+    prefix = voice_id.split("-")[0].lower()
+    mapping = {
+        "11labs": "elevenlabs",
+        "cartesia": "cartesia",
+        "openai": "openai",
+        "deepgram": "deepgram",
+        "minimax": "minimax",
+        "retell": "retell",
+    }
+    return mapping.get(prefix, prefix)
 
 
 class AgentSettingsResponse(BaseModel):
@@ -27,8 +42,10 @@ class AgentSettingsResponse(BaseModel):
     closed_greeting: str
     open_greeting: str | None
     restaurant_timezone: str
-    force_store_open: bool | None
     prompt_instructions: str | None
+    delivery_address: str | None
+    pickup_address: str | None
+    restaurant_name: str
     locked_prompt_tail: str = retell_service.LOCKED_PROMPT_TAIL
     updated_at: datetime
     retell_live: dict | None = None
@@ -52,6 +69,37 @@ class UpdateAgentSettingsRequest(BaseModel):
     open_greeting: str | None = None
     restaurant_timezone: str | None = None
     prompt_instructions: str | None = None
+    delivery_address: str | None = None
+    pickup_address: str | None = None
+    restaurant_name: str | None = None
+
+
+class VoiceItem(BaseModel):
+    voice_id: str
+    voice_name: str
+    provider: str
+    gender: str
+    accent: str | None = None
+    age: str | None = None
+    preview_audio_url: str | None = None
+
+
+class VoicesResponse(BaseModel):
+    voices: list[VoiceItem]
+    current_voice_id: str
+    current_provider: str
+
+
+class AgentLiveResponse(BaseModel):
+    voice_id: str
+    voice_speed: float | None = None
+    voice_temperature: float | None = None
+    interruption_sensitivity: float | None = None
+    responsiveness: float | None = None
+    is_published: bool | None = None
+    language: str | None = None
+    max_call_duration_ms: int | None = None
+    end_call_after_silence_ms: int | None = None
 
 
 @router.get("", response_model=AgentSettingsResponse)
@@ -59,8 +107,6 @@ async def get_settings(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    import logging
-    logger = logging.getLogger(__name__)
     settings = await get_agent_settings(db)
     retell_live = None
     try:
@@ -86,25 +132,108 @@ async def get_retell_live(_: User = Depends(get_current_user)):
     return await retell_service.get_agent()
 
 
+@router.get("/agent-live", response_model=AgentLiveResponse)
+async def get_agent_live(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    try:
+        agent = await retell_service.get_agent()
+    except Exception as e:
+        logger.error("Could not reach Retell API: %s", e)
+        raise HTTPException(status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE, detail="Could not reach Retell API")
+    try:
+        await update_agent_settings(
+            db,
+            voice_id=agent.get("voice_id"),
+            voice_speed=agent.get("voice_speed"),
+            interruption_sensitivity=agent.get("interruption_sensitivity"),
+            responsiveness=agent.get("responsiveness"),
+        )
+    except Exception as e:
+        logger.error("Failed to sync agent-live settings to DB: %s", e)
+    return AgentLiveResponse(
+        voice_id=agent.get("voice_id", ""),
+        voice_speed=agent.get("voice_speed"),
+        voice_temperature=agent.get("voice_temperature"),
+        interruption_sensitivity=agent.get("interruption_sensitivity"),
+        responsiveness=agent.get("responsiveness"),
+        is_published=agent.get("is_published"),
+        language=agent.get("language"),
+        max_call_duration_ms=agent.get("max_call_duration_ms"),
+        end_call_after_silence_ms=agent.get("end_call_after_silence_ms"),
+    )
+
+
+@router.get("/voices", response_model=VoicesResponse)
+async def get_voices(_: User = Depends(get_current_user)):
+    try:
+        agent = await retell_service.get_agent()
+    except Exception as e:
+        logger.error("Could not reach Retell API for agent: %s", e)
+        raise HTTPException(status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE, detail="Could not reach Retell API")
+    current_voice_id = agent.get("voice_id", "")
+    current_provider = _detect_provider(current_voice_id)
+    try:
+        all_voices = await retell_service.list_voices()
+    except Exception as e:
+        logger.error("Could not fetch voice list from Retell: %s", e)
+        raise HTTPException(status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE, detail="Could not fetch voices from Retell")
+    allowed_accents = {"american", "british", "australian", "canadian", "irish", "south african", "new zealand"}
+    filtered = [
+        VoiceItem(
+            voice_id=v.get("voice_id", ""),
+            voice_name=v.get("voice_name", ""),
+            provider=v.get("provider", ""),
+            gender=v.get("gender", ""),
+            accent=v.get("accent"),
+            age=v.get("age"),
+            preview_audio_url=v.get("preview_audio_url"),
+        )
+        for v in all_voices
+        if _detect_provider(v.get("voice_id", "")) == current_provider
+        and str(v.get("gender", "")).lower() == "female"
+        and str(v.get("accent", "")).lower() in allowed_accents
+    ]
+    filtered = filtered[:10]
+    return VoicesResponse(voices=filtered, current_voice_id=current_voice_id, current_provider=current_provider)
+
+
 @router.patch("", response_model=AgentSettingsResponse)
 async def patch_settings(
     body: UpdateAgentSettingsRequest,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    import logging
-    logger = logging.getLogger(__name__)
     updates = body.model_dump(exclude_none=True)
     voice_fields = {"voice_id", "voice_speed", "interruption_sensitivity", "responsiveness"}
     voice_updates = {k: v for k, v in updates.items() if k in voice_fields}
-    
+
     if "voice_id" in voice_updates:
         valid_prefixes = ("11labs-", "cartesia-", "retell-", "openai-", "deepgram-", "minimax-")
-        if not voice_updates["voice_id"].startswith(valid_prefixes):
-            logger.error("Invalid voice_id format: %s", voice_updates["voice_id"])
+        new_voice_id = voice_updates["voice_id"]
+        if not new_voice_id.startswith(valid_prefixes):
+            logger.error("Invalid voice_id format: %s", new_voice_id)
             voice_updates.pop("voice_id")
-            
-    is_active = updates.get("is_active")
+        else:
+            try:
+                all_voices = await retell_service.list_voices()
+                valid_ids = {v.get("voice_id") for v in all_voices}
+                if new_voice_id not in valid_ids:
+                    raise HTTPException(
+                        status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail="Voice ID not found in Retell. Use GET /api/settings/voices to see available voices.",
+                    )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning("Could not validate voice_id against Retell: %s", e)
+            new_provider = new_voice_id.split("-")[0]
+            if new_provider == "11labs":
+                voice_updates["voice_model"] = "eleven_turbo_v2_5"
+            else:
+                voice_updates["voice_model"] = None
+
     prompt_instructions = updates.get("prompt_instructions")
     settings = await update_agent_settings(db, **updates)
     if voice_updates:
@@ -114,11 +243,6 @@ async def patch_settings(
             logger.warning("Retell update-agent response: %s", result)
         except Exception as e:
             logger.error("Failed to sync voice settings to Retell: %s", e)
-    if is_active is not None:
-        try:
-            await retell_service.toggle_agent_active(is_active)
-        except Exception as e:
-            logger.error("Failed to sync active status to Retell: %s", e)
     if prompt_instructions is not None:
         try:
             full_prompt = retell_service.assemble_global_prompt(prompt_instructions)
@@ -126,28 +250,3 @@ async def patch_settings(
         except Exception as e:
             logger.error("Failed to sync prompt to Retell: %s", e)
     return AgentSettingsResponse.model_validate(settings)
-
-
-class StoreStatusRequest(BaseModel):
-    open: bool | None = None
-
-
-class StoreStatusResponse(BaseModel):
-    force_store_open: bool | None
-    message: str
-
-
-@router.post("/store-status", response_model=StoreStatusResponse)
-async def set_store_status(
-    body: StoreStatusRequest,
-    db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
-):
-    settings = await update_agent_settings(db, force_store_open=body.open)
-    if body.open is True:
-        msg = "Store forced OPEN. Time-based hours are bypassed."
-    elif body.open is False:
-        msg = "Store forced CLOSED. Time-based hours are bypassed."
-    else:
-        msg = "Store set to AUTO. Time-based hours are active."
-    return StoreStatusResponse(force_store_open=settings.force_store_open, message=msg)

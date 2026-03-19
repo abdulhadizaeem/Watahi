@@ -109,20 +109,12 @@ async def update_agent_voice_settings(**kwargs) -> dict:
         return response.json()
 
 
-async def toggle_agent_active(is_active: bool) -> dict:
-    agent_id = os.getenv("RETELL_AGENT_ID", "")
-    settings_payload = {}
-    if not is_active:
-        settings_payload["end_call_after_silence_ms"] = 1000
-        settings_payload["max_call_duration_ms"] = 60000
-    else:
-        settings_payload["end_call_after_silence_ms"] = 15000
-        settings_payload["max_call_duration_ms"] = 3600000
+
+async def list_voices() -> list[dict]:
     async with httpx.AsyncClient() as client:
-        response = await client.patch(
-            f"{BASE_URL}/update-agent/{agent_id}",
+        response = await client.get(
+            f"{BASE_URL}/list-voices",
             headers=_headers(),
-            json=settings_payload,
         )
         response.raise_for_status()
         return response.json()
