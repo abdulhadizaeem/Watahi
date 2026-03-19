@@ -609,7 +609,15 @@ async def get_dashboard_stats(db: AsyncSession, days: int = 7) -> dict:
     total_minutes_ms = await db.scalar(select(func.sum(CallLog.duration_ms)).select_from(CallLog).where(CallLog.created_at >= since).where(CallLog.duration_ms.isnot(None))) or 0
     total_minutes = round((total_minutes_ms or 0) / 60000, 1)
     successful_calls = await db.scalar(select(func.count()).select_from(CallLog).where(CallLog.created_at >= since).where(CallLog.call_successful == True)) or 0
-    repeat_callers = await db.scalar(select(func.count()).select_from(Caller).where(Caller.last_called_at >= since).where(Caller.created_at < since)) or 0
+    subq = (
+        select(CallLog.caller_phone)
+        .where(CallLog.created_at >= since)
+        .where(CallLog.caller_phone != "")
+        .group_by(CallLog.caller_phone)
+        .having(func.count() > 1)
+        .subquery("sq")
+    )
+    repeat_callers = await db.scalar(select(func.count()).select_from(subq)) or 0
     new_callers = await db.scalar(select(func.count()).select_from(Caller).where(Caller.created_at >= since)) or 0
     pickup_orders = await db.scalar(select(func.count()).select_from(Order).where(Order.created_at >= since).where(Order.order_type == "pickup")) or 0
     delivery_orders = await db.scalar(select(func.count()).select_from(Order).where(Order.created_at >= since).where(Order.order_type == "delivery")) or 0

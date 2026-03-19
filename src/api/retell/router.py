@@ -761,13 +761,25 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)):
         analysis = call_data.get("call_analysis", {})
         custom = analysis.get("custom_analysis_data", {})
         call_reason = (custom.get("call_reason") or "").strip() or None
+        
+        is_order_booked = bool(custom.get("order_booked", False))
+        raw_success = custom.get("call_successful")
+        is_success = False
+        if isinstance(raw_success, str):
+            is_success = raw_success.strip().lower() in ("true", "1", "yes")
+        elif isinstance(raw_success, bool):
+            is_success = raw_success
+            
+        if is_order_booked:
+            is_success = True
+            
         await update_call_log(
             db,
             call_id,
             call_summary=analysis.get("call_summary"),
             user_sentiment=analysis.get("user_sentiment"),
-            order_booked=bool(custom.get("order_booked", False)),
-            call_successful=custom.get("call_successful"),
+            order_booked=is_order_booked,
+            call_successful=is_success,
             call_reason=call_reason,
         )
         if call_reason == "reservation":
