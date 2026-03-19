@@ -187,3 +187,23 @@ class MenuSpecial(Base):
 async def get_db():
     async with AsyncSessionLocal() as session:
         yield session
+
+from sqlalchemy import text
+
+async def init_db():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+        
+        # Auto-apply new schema columns (ignore duplicate errors if already applied)
+        try:
+            await conn.execute(text("ALTER TABLE agent_settings ADD COLUMN restaurant_info VARCHAR DEFAULT 'We are open daily from 11am to 10pm.'"))
+        except Exception:
+            pass
+        try:
+            await conn.execute(text("ALTER TABLE agent_settings ADD COLUMN wait_time_pickup VARCHAR DEFAULT '15'"))
+        except Exception:
+            pass
+        try:
+            await conn.execute(text("ALTER TABLE agent_settings ADD COLUMN wait_time_delivery VARCHAR DEFAULT '30'"))
+        except Exception:
+            pass

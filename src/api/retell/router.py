@@ -56,7 +56,12 @@ def _check_business_hours(current_hhmm: str, open_hhmm: str, close_hhmm: str) ->
         h, m = map(int, t.split(":"))
         return h * 60 + m
     now = to_minutes(current_hhmm)
-    return to_minutes(open_hhmm) <= now <= to_minutes(close_hhmm)
+    open_m = to_minutes(open_hhmm)
+    close_m = to_minutes(close_hhmm)
+    if open_m <= close_m:
+        return open_m <= now <= close_m
+    else:
+        return now >= open_m or now <= close_m
 
 
 def _format_reservation_message(res_date: date, time_str: str, party_size: int) -> str:
