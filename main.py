@@ -13,6 +13,7 @@ from src.api.auth.router import router as auth_router
 from src.api.retell.router import router as retell_router
 from src.api.settings.router import router as settings_router
 from src.api.menu.router import router as menu_router
+from src.api.prompts.router import router as prompts_router
 
 
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
@@ -39,6 +40,7 @@ app.include_router(auth_router)
 app.include_router(retell_router)
 app.include_router(settings_router)
 app.include_router(menu_router)
+app.include_router(prompts_router)
 
 
 class HealthResponse(BaseModel):

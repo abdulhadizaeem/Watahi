@@ -267,6 +267,29 @@ class OrderUpdateRequest(BaseModel):
     delivery_address: str | None = None
 
 
+class CloverItemMapItem(BaseModel):
+    item_name: str
+    clover_item_id: str
+    clover_item_name: str | None = None
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+
+class CloverItemMapRequest(BaseModel):
+    item_name: str
+    clover_item_id: str
+    clover_item_name: str | None = None
+
+
+class CloverSyncResponse(BaseModel):
+    auto_mapped: list[str]
+    unmatched_clover_items: list[str]
+    total_clover_items: int
+    total_mapped: int
+
+
 class RepeatCallerItem(BaseModel):
     phone: str
     name: str
@@ -617,6 +640,29 @@ async def order_confirm(request: Request, db: AsyncSession = Depends(get_db)):
         call_id=None,
     )
     await upsert_caller(db, body.customer_phone, body.customer_name)
+
+    import logging
+    from src.services import clover_service
+    from src.utils.db_functions import get_clover_item_map, update_order_clover_status
+    _logger = logging.getLogger(__name__)
+    try:
+        item_id_map = await get_clover_item_map(db)
+        if item_id_map:
+            clover_result = await clover_service.push_order_to_clover(
+                order_items=body.order_items,
+                order_type=body.order_type,
+                customer_name=body.customer_name,
+                delivery_address=body.delivery_address or "",
+                special_notes="",
+                item_id_map=item_id_map,
+            )
+            if clover_result["skipped_items"]:
+                _logger.warning("Clover skipped unmapped items: %s", clover_result["skipped_items"])
+            await update_order_clover_status(db, order.order_id, clover_result["clover_order_id"], True)
+    except Exception as exc:
+        _logger.error("Clover push failed: %s", exc)
+        await update_order_clover_status(db, order.order_id, None, False, str(exc))
+
     messages = {
         "pickup": "Your order has been confirmed. It will be ready for pickup in about 15 minutes.",
         "delivery": "Your order has been confirmed and will be delivered to you in about 30 minutes.",
@@ -787,5 +833,90 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)):
             if log and log.caller_phone:
                 await link_reservation_to_call(db, log.caller_phone, call_id)
     return WebhookResponse(received=True)
+
+
+@router.get("/clover/inventory")
+async def clover_inventory(_: User = Depends(get_current_user)) -> list[dict]:
+    from src.services import clover_service
+    items = await clover_service.get_clover_inventory()
+    return [{"id": i.get("id"), "name": i.get("name"), "price": i.get("price")} for i in items]
+
+
+@router.get("/clover/order-types")
+async def clover_order_types(_: User = Depends(get_current_user)) -> list[dict]:
+    from src.services import clover_service
+    return await clover_service.get_clover_order_types()
+
+
+@router.get("/clover/item-map", response_model=list[CloverItemMapItem])
+async def get_item_map(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    from src.utils.db import CloverItemMap
+    result = await db.execute(select(CloverItemMap))
+    return [CloverItemMapItem.model_validate(r) for r in result.scalars().all()]
+
+
+@router.post("/clover/item-map")
+async def save_item_map(
+    body: CloverItemMapRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> dict:
+    from src.utils.db_functions import upsert_clover_item
+    await upsert_clover_item(db, body.item_name, body.clover_item_id, body.clover_item_name)
+    return {"message": "Item mapping saved"}
+
+
+@router.delete("/clover/item-map/{item_name}")
+async def remove_item_map(
+    item_name: str,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> dict:
+    from src.utils.db_functions import delete_clover_item
+    await delete_clover_item(db, item_name)
+    return {"message": "Item mapping removed"}
+
+
+@router.post("/clover/sync-inventory", response_model=CloverSyncResponse)
+async def sync_clover_inventory(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    from src.services import clover_service
+    from src.utils.db_functions import upsert_clover_item, get_clover_item_map
+    from src.utils.db import MenuItem
+    clover_items = await clover_service.get_clover_inventory()
+
+    menu_result = await db.execute(select(MenuItem).where(MenuItem.is_available == True))
+    menu_items = list(menu_result.scalars().all())
+
+    auto_mapped: list[str] = []
+    unmatched: list[str] = []
+
+    for ci in clover_items:
+        ci_name = (ci.get("name") or "").strip().lower()
+        ci_id = ci.get("id", "")
+        matched = False
+        for mi in menu_items:
+            mi_name = (mi.name or "").strip().lower()
+            if ci_name in mi_name or mi_name in ci_name:
+                await upsert_clover_item(db, mi.name, ci_id, ci.get("name"))
+                auto_mapped.append(mi.name)
+                matched = True
+                break
+        if not matched:
+            unmatched.append(ci.get("name", ""))
+
+    current_map = await get_clover_item_map(db)
+    return CloverSyncResponse(
+        auto_mapped=auto_mapped,
+        unmatched_clover_items=unmatched,
+        total_clover_items=len(clover_items),
+        total_mapped=len(current_map),
+    )
+
 
 CallLogResponse.model_rebuild()

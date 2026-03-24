@@ -137,6 +137,9 @@ class Order(Base):
     total_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String, default="received")
     special_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    clover_order_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    clover_synced: Mapped[bool] = mapped_column(Boolean, default=False)
+    clover_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
@@ -184,6 +187,30 @@ class MenuSpecial(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class Prompt(Base):
+    __tablename__ = "prompts"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class CloverItemMap(Base):
+    __tablename__ = "clover_item_map"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    item_name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    clover_item_id: Mapped[str] = mapped_column(String, nullable=False)
+    clover_item_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 async def get_db():
     async with AsyncSessionLocal() as session:
         yield session
@@ -207,3 +234,12 @@ async def init_db():
             await conn.execute(text("ALTER TABLE agent_settings ADD COLUMN wait_time_delivery VARCHAR DEFAULT '30'"))
         except Exception:
             pass
+        for col_sql in [
+            "ALTER TABLE orders ADD COLUMN clover_order_id VARCHAR",
+            "ALTER TABLE orders ADD COLUMN clover_synced BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE orders ADD COLUMN clover_error TEXT",
+        ]:
+            try:
+                await conn.execute(text(col_sql))
+            except Exception:
+                pass

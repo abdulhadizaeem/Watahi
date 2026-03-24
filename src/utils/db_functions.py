@@ -712,3 +712,63 @@ async def get_sentiment_breakdown(db: AsyncSession, days: int = 7) -> dict:
     rows = result.all()
     return {r.user_sentiment: r.count for r in rows}
 
+
+async def get_clover_item_map(db: AsyncSession) -> dict[str, str]:
+    from src.utils.db import CloverItemMap
+    result = await db.execute(
+        select(CloverItemMap).where(CloverItemMap.is_active == True)
+    )
+    return {item.item_name: item.clover_item_id for item in result.scalars().all()}
+
+
+async def upsert_clover_item(
+    db: AsyncSession,
+    item_name: str,
+    clover_item_id: str,
+    clover_item_name: str | None = None,
+) -> None:
+    from src.utils.db import CloverItemMap
+    result = await db.execute(
+        select(CloverItemMap).where(CloverItemMap.item_name == item_name)
+    )
+    existing = result.scalar_one_or_none()
+    if existing:
+        existing.clover_item_id = clover_item_id
+        if clover_item_name:
+            existing.clover_item_name = clover_item_name
+        existing.updated_at = datetime.now(timezone.utc)
+    else:
+        db.add(CloverItemMap(
+            item_name=item_name,
+            clover_item_id=clover_item_id,
+            clover_item_name=clover_item_name,
+        ))
+    await db.commit()
+
+
+async def delete_clover_item(db: AsyncSession, item_name: str) -> None:
+    from src.utils.db import CloverItemMap
+    result = await db.execute(
+        select(CloverItemMap).where(CloverItemMap.item_name == item_name)
+    )
+    existing = result.scalar_one_or_none()
+    if existing:
+        existing.is_active = False
+        existing.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+
+
+async def update_order_clover_status(
+    db: AsyncSession,
+    order_id: str,
+    clover_order_id: str | None,
+    synced: bool,
+    error: str | None = None,
+) -> None:
+    from src.utils.db import Order
+    await db.execute(
+        update(Order)
+        .where(Order.order_id == order_id)
+        .values(clover_order_id=clover_order_id, clover_synced=synced, clover_error=error)
+    )
+    await db.commit()
