@@ -140,6 +140,9 @@ class Order(Base):
     clover_order_id: Mapped[str | None] = mapped_column(String, nullable=True)
     clover_synced: Mapped[bool] = mapped_column(Boolean, default=False)
     clover_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    square_order_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    square_synced: Mapped[bool] = mapped_column(Boolean, default=False)
+    square_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
@@ -238,6 +241,9 @@ async def init_db():
             "ALTER TABLE orders ADD COLUMN clover_order_id VARCHAR",
             "ALTER TABLE orders ADD COLUMN clover_synced BOOLEAN DEFAULT FALSE",
             "ALTER TABLE orders ADD COLUMN clover_error TEXT",
+            "ALTER TABLE orders ADD COLUMN square_order_id VARCHAR",
+            "ALTER TABLE orders ADD COLUMN square_synced BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE orders ADD COLUMN square_error TEXT",
         ]:
             try:
                 await conn.execute(text(col_sql))

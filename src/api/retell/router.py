@@ -643,25 +643,32 @@ async def order_confirm(request: Request, db: AsyncSession = Depends(get_db)):
 
     import logging
     from src.services import clover_service
-    from src.utils.db_functions import get_clover_item_map, update_order_clover_status
+    from src.utils.db_functions import update_order_clover_status, get_menu_items_prices
     _logger = logging.getLogger(__name__)
-    try:
-        item_id_map = await get_clover_item_map(db)
-        if item_id_map:
+
+    if os.getenv("CLOVER_API_TOKEN") and os.getenv("CLOVER_MERCHANT_ID"):
+        try:
+            # Look up prices from DB based on item names
+            item_names = [i.get("item", "") for i in body.order_items]
+            prices_map = await get_menu_items_prices(db, item_names)
+            
+            # Attach prices to the items
+            enhanced_items = []
+            for item in body.order_items:
+                name = item.get("item", "Unknown Item")
+                db_price = prices_map.get(name.lower(), 0.0)
+                enhanced_item = dict(item)
+                enhanced_item["price"] = db_price
+                enhanced_items.append(enhanced_item)
+
             clover_result = await clover_service.push_order_to_clover(
-                order_items=body.order_items,
-                order_type=body.order_type,
+                order_items=enhanced_items,
                 customer_name=body.customer_name,
-                delivery_address=body.delivery_address or "",
-                special_notes="",
-                item_id_map=item_id_map,
             )
-            if clover_result["skipped_items"]:
-                _logger.warning("Clover skipped unmapped items: %s", clover_result["skipped_items"])
             await update_order_clover_status(db, order.order_id, clover_result["clover_order_id"], True)
-    except Exception as exc:
-        _logger.error("Clover push failed: %s", exc)
-        await update_order_clover_status(db, order.order_id, None, False, str(exc))
+        except Exception as exc:
+            _logger.error("Clover push failed: %s", exc)
+            await update_order_clover_status(db, order.order_id, None, False, str(exc))
 
     messages = {
         "pickup": "Your order has been confirmed. It will be ready for pickup in about 15 minutes.",
@@ -917,6 +924,12 @@ async def sync_clover_inventory(
         total_clover_items=len(clover_items),
         total_mapped=len(current_map),
     )
+
+
+@router.get("/square/locations")
+async def square_locations(_: User = Depends(get_current_user)) -> list[dict]:
+    from src.services import square_service
+    return await square_service.get_square_locations()
 
 
 CallLogResponse.model_rebuild()

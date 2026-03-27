@@ -772,3 +772,31 @@ async def update_order_clover_status(
         .values(clover_order_id=clover_order_id, clover_synced=synced, clover_error=error)
     )
     await db.commit()
+
+
+async def update_order_square_status(
+    db: AsyncSession,
+    order_id: str,
+    square_order_id: str | None,
+    synced: bool,
+    error: str | None = None,
+) -> None:
+    from src.utils.db import Order
+    await db.execute(
+        update(Order)
+        .where(Order.order_id == order_id)
+        .values(square_order_id=square_order_id, square_synced=synced, square_error=error)
+    )
+    await db.commit()
+
+
+async def get_menu_items_prices(db: AsyncSession, item_names: list[str]) -> dict[str, float]:
+    """Helper to fetch prices for multiple items by name."""
+    if not item_names:
+        return {}
+    from src.utils.db import MenuItem
+    result = await db.execute(
+        select(MenuItem.name, MenuItem.price)
+        .where(MenuItem.name.in_(item_names))
+    )
+    return {row[0].lower(): row[1] for row in result.all()}
