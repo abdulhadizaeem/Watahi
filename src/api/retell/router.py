@@ -40,6 +40,7 @@ from src.utils.db_functions import (
     get_sentiment_breakdown,
     upsert_menu_item_from_clover,
     delete_menu_item_by_clover_id,
+    full_sync_menu_from_clover,
 )
 from src.services import retell_service
 
@@ -940,12 +941,11 @@ async def sync_menu_from_clover(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ) -> dict:
-    """Pull all items from Clover and upsert them into the local menu_items table."""
+    """Full replacement sync: pull all Clover items and replace local menu."""
     from src.services.clover_service import fetch_all_clover_items
     items = await fetch_all_clover_items()
-    for item in items:
-        await upsert_menu_item_from_clover(db, item)
-    return {"synced": len(items), "message": f"Synced {len(items)} items from Clover."}
+    result = await full_sync_menu_from_clover(db, items)
+    return {"total_clover_items": len(items), **result}
 
 
 @router.post("/clover/webhook")

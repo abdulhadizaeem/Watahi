@@ -787,13 +787,31 @@ async def get_menu_items_prices(db: AsyncSession, item_names: list[str]) -> dict
     return {row[0].lower(): row[1] for row in result.all()}
 
 
-async def upsert_menu_item_from_clover(db: AsyncSession, item: dict) -> None:
+CLOVER_ITEM_SKIP_PREFIXES = ("print", "gift card", "fb redeem", "waiver")
+
+
+def _is_clover_internal_item(item: dict) -> bool:
+    """Return True if a Clover item should be excluded from the customer menu."""
+    price_cents = item.get("price", 0)
+    name = item.get("name", "").strip().lower()
+    if price_cents == 0:
+        return True
+    if any(name.startswith(prefix) for prefix in CLOVER_ITEM_SKIP_PREFIXES):
+        return True
+    return False
+
+
+async def upsert_menu_item_from_clover(db: AsyncSession, item: dict) -> bool:
     """Upsert a single Clover item into the local menu_items table.
 
+    Returns True if the item was synced, False if it was skipped.
     Resolves the category by name from Clover's categories list or falls back
     to a default 'Clover Items' category so every item always has a home.
     """
     from src.utils.db import MenuItem, MenuCategory
+
+    if _is_clover_internal_item(item):
+        return False
 
     clover_id = item.get("id")
     name = item.get("name", "").strip()
@@ -840,6 +858,56 @@ async def upsert_menu_item_from_clover(db: AsyncSession, item: dict) -> None:
         ))
 
     await db.commit()
+    return True
+
+
+async def full_sync_menu_from_clover(db: AsyncSession, clover_items: list[dict]) -> dict:
+    """Full replacement sync: wipe items/categories not linked to Clover, then upsert.
+
+    This prevents duplicate categories from accumulating when mixing
+    manually-seeded data with Clover-synced data.
+    """
+    from src.utils.db import MenuItem, MenuCategory
+    from sqlalchemy import delete as sa_delete
+
+    # 1. Remove all items that have no clover_item_id (old seeded data)
+    await db.execute(
+        sa_delete(MenuItem).where(MenuItem.clover_item_id.is_(None))
+    )
+    await db.commit()
+
+    # 2. Soft-disable all clover-linked items; re-enable only those still in Clover
+    await db.execute(
+        update(MenuItem)
+        .where(MenuItem.clover_item_id.is_not(None))
+        .values(is_available=False, updated_at=datetime.now(timezone.utc))
+    )
+    await db.commit()
+
+    # 3. Upsert each valid Clover item (this re-enables them)
+    synced = 0
+    skipped = 0
+    for item in clover_items:
+        result = await upsert_menu_item_from_clover(db, item)
+        if result:
+            synced += 1
+        else:
+            skipped += 1
+
+    # 4. Remove categories that now have zero items
+    all_cats = (await db.execute(select(MenuCategory))).scalars().all()
+    for cat in all_cats:
+        count = await db.scalar(
+            select(sa_func.count()).select_from(MenuItem).where(
+                MenuItem.category_id == cat.id,
+                MenuItem.is_available == True,
+            )
+        )
+        if not count:
+            await db.delete(cat)
+    await db.commit()
+
+    return {"synced": synced, "skipped": skipped}
 
 
 async def delete_menu_item_by_clover_id(db: AsyncSession, clover_item_id: str) -> None:
@@ -851,4 +919,5 @@ async def delete_menu_item_by_clover_id(db: AsyncSession, clover_item_id: str) -
         .values(is_available=False, updated_at=datetime.now(timezone.utc))
     )
     await db.commit()
+
 

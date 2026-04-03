@@ -218,30 +218,28 @@ async def get_db():
 
 from sqlalchemy import text
 
+
+async def _run_migration(sql: str) -> None:
+    """Run a single DDL statement in its own transaction so failures are isolated."""
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(sql))
+    except Exception:
+        pass
+
+
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        
-        # Auto-apply new schema columns (ignore duplicate errors if already applied)
-        try:
-            await conn.execute(text("ALTER TABLE agent_settings ADD COLUMN restaurant_info VARCHAR DEFAULT 'We are open daily from 11am to 10pm.'"))
-        except Exception:
-            pass
-        try:
-            await conn.execute(text("ALTER TABLE agent_settings ADD COLUMN wait_time_pickup VARCHAR DEFAULT '15'"))
-        except Exception:
-            pass
-        try:
-            await conn.execute(text("ALTER TABLE agent_settings ADD COLUMN wait_time_delivery VARCHAR DEFAULT '30'"))
-        except Exception:
-            pass
-        for col_sql in [
-            "ALTER TABLE orders ADD COLUMN clover_order_id VARCHAR",
-            "ALTER TABLE orders ADD COLUMN clover_synced BOOLEAN DEFAULT FALSE",
-            "ALTER TABLE orders ADD COLUMN clover_error TEXT",
-            "ALTER TABLE menu_items ADD COLUMN clover_item_id VARCHAR UNIQUE",
-        ]:
-            try:
-                await conn.execute(text(col_sql))
-            except Exception:
-                pass
+
+    migrations = [
+        "ALTER TABLE agent_settings ADD COLUMN IF NOT EXISTS restaurant_info VARCHAR DEFAULT 'We are open daily from 11am to 10pm.'",
+        "ALTER TABLE agent_settings ADD COLUMN IF NOT EXISTS wait_time_pickup VARCHAR DEFAULT '15'",
+        "ALTER TABLE agent_settings ADD COLUMN IF NOT EXISTS wait_time_delivery VARCHAR DEFAULT '30'",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS clover_order_id VARCHAR",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS clover_synced BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE orders ADD COLUMN IF NOT EXISTS clover_error TEXT",
+        "ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS clover_item_id VARCHAR",
+    ]
+    for sql in migrations:
+        await _run_migration(sql)
