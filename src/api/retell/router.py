@@ -38,6 +38,8 @@ from src.utils.db_functions import (
     get_orders_over_time,
     get_top_repeat_callers,
     get_sentiment_breakdown,
+    upsert_menu_item_from_clover,
+    delete_menu_item_by_clover_id,
 )
 from src.services import retell_service
 
@@ -724,11 +726,12 @@ async def inbound_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     await upsert_caller(db, from_number, existing_caller.customer_name if existing_caller else None)
     await update_caller_last_called(db, from_number)
     settings = await get_agent_settings(db)
-    from zoneinfo import ZoneInfo
     try:
+        from zoneinfo import ZoneInfo
         tz = ZoneInfo(settings.restaurant_timezone)
     except Exception:
-        tz = ZoneInfo("America/New_York")
+        from datetime import timezone as _tz
+        tz = _tz.utc
     now_hhmm = datetime.now(tz).strftime("%H:%M")
     if settings.is_active:
         store_open = "true" if _check_business_hours(now_hhmm, settings.store_open_time, settings.store_close_time) else "false"
@@ -930,6 +933,62 @@ async def sync_clover_inventory(
 async def square_locations(_: User = Depends(get_current_user)) -> list[dict]:
     from src.services import square_service
     return await square_service.get_square_locations()
+
+
+@router.post("/menu/sync-from-clover")
+async def sync_menu_from_clover(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> dict:
+    """Pull all items from Clover and upsert them into the local menu_items table."""
+    from src.services.clover_service import fetch_all_clover_items
+    items = await fetch_all_clover_items()
+    for item in items:
+        await upsert_menu_item_from_clover(db, item)
+    return {"synced": len(items), "message": f"Synced {len(items)} items from Clover."}
+
+
+@router.post("/clover/webhook")
+async def clover_inventory_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Receive Clover inventory change webhooks and sync to local DB.
+
+    Clover sends: {merchantId, appId, type, time, itemId} or a list thereof.
+    Register this URL in Clover Developer Dashboard under Webhooks with the
+    Inventory (I) event type checked.
+    """
+    import logging
+    _wh_logger = logging.getLogger(__name__)
+    from src.services.clover_service import fetch_clover_item
+
+    try:
+        payload = await request.json()
+    except Exception:
+        return {"received": False}
+
+    # Clover may send a list or a single notification object
+    events = payload if isinstance(payload, list) else [payload]
+
+    for event in events:
+        event_type = event.get("type", "")
+        item_id = event.get("itemId", event.get("objectId", ""))
+        if not item_id:
+            continue
+
+        if event_type == "DELETE":
+            await delete_menu_item_by_clover_id(db, item_id)
+            _wh_logger.info("Clover webhook: deleted item %s", item_id)
+        else:
+            try:
+                item = await fetch_clover_item(item_id)
+                await upsert_menu_item_from_clover(db, item)
+                _wh_logger.info("Clover webhook: upserted item %s", item_id)
+            except Exception as exc:
+                _wh_logger.error("Clover webhook: failed for %s: %s", item_id, exc)
+
+    return {"received": True}
 
 
 CallLogResponse.model_rebuild()

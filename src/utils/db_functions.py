@@ -785,3 +785,70 @@ async def get_menu_items_prices(db: AsyncSession, item_names: list[str]) -> dict
         .where(MenuItem.name.in_(item_names))
     )
     return {row[0].lower(): row[1] for row in result.all()}
+
+
+async def upsert_menu_item_from_clover(db: AsyncSession, item: dict) -> None:
+    """Upsert a single Clover item into the local menu_items table.
+
+    Resolves the category by name from Clover's categories list or falls back
+    to a default 'Clover Items' category so every item always has a home.
+    """
+    from src.utils.db import MenuItem, MenuCategory
+
+    clover_id = item.get("id")
+    name = item.get("name", "").strip()
+    price_cents = item.get("price", 0)
+    price = price_cents / 100.0
+    hidden = item.get("hidden", False)
+
+    # Resolve category name from first attached Clover category
+    cat_elements = item.get("categories", {}).get("elements", [])
+    category_name = cat_elements[0].get("name", "Clover Items") if cat_elements else "Clover Items"
+
+    # Find or create local MenuCategory by name
+    cat_result = await db.execute(
+        select(MenuCategory).where(MenuCategory.name == category_name)
+    )
+    category = cat_result.scalar_one_or_none()
+    if not category:
+        category = MenuCategory(name=category_name, is_available=True)
+        db.add(category)
+        await db.flush()
+
+    # Find existing item by clover_item_id
+    item_result = await db.execute(
+        select(MenuItem).where(MenuItem.clover_item_id == clover_id)
+    )
+    existing = item_result.scalar_one_or_none()
+
+    now = datetime.now(timezone.utc)
+    if existing:
+        existing.name = name
+        existing.price = price
+        existing.category_id = category.id
+        existing.is_available = not hidden
+        existing.updated_at = now
+    else:
+        db.add(MenuItem(
+            category_id=category.id,
+            name=name,
+            price=price,
+            is_available=not hidden,
+            clover_item_id=clover_id,
+            created_at=now,
+            updated_at=now,
+        ))
+
+    await db.commit()
+
+
+async def delete_menu_item_by_clover_id(db: AsyncSession, clover_item_id: str) -> None:
+    """Soft-delete a menu item when Clover sends a DELETE webhook event."""
+    from src.utils.db import MenuItem
+    await db.execute(
+        update(MenuItem)
+        .where(MenuItem.clover_item_id == clover_item_id)
+        .values(is_available=False, updated_at=datetime.now(timezone.utc))
+    )
+    await db.commit()
+

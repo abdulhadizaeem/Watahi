@@ -1,6 +1,9 @@
+import logging
 import os
 
 import httpx
+
+_logger = logging.getLogger(__name__)
 
 
 def _headers() -> dict:
@@ -40,7 +43,7 @@ async def push_order_to_clover(
 
     payload: dict = {
         "orderCart": {
-            "title": f"Vaxis - {customer_name}",
+            "title": "Vaxis",
             "state": "open",
             "lineItems": line_items,
         }
@@ -48,12 +51,29 @@ async def push_order_to_clover(
     if order_type_id:
         payload["orderCart"]["orderType"] = {"id": order_type_id}
 
-    url = f"{_merchant_base()}/atomic_order/orders"
     async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.post(url, headers=_headers(), json=payload)
+        r = await client.post(
+            f"{_merchant_base()}/atomic_order/orders",
+            headers=_headers(),
+            json=payload,
+        )
         r.raise_for_status()
         data = r.json()
-        return {"clover_order_id": data.get("id") or data.get("href", "").split("/")[-1]}
+        order_id = data.get("id") or data.get("href", "").split("/")[-1]
+        _logger.info("Clover order created: %s", order_id)
+
+        if order_id:
+            try:
+                print_resp = await client.post(
+                    f"{_merchant_base()}/print_event",
+                    headers=_headers(),
+                    json={"orderRef": {"id": order_id}},
+                )
+                _logger.info("Print event: %s %s", print_resp.status_code, print_resp.text[:100])
+            except Exception as exc:
+                _logger.error("Print event failed for order %s: %s", order_id, exc)
+
+        return {"clover_order_id": order_id}
 
 
 async def get_clover_inventory() -> list[dict]:
@@ -70,5 +90,27 @@ async def get_clover_inventory() -> list[dict]:
 async def get_clover_order_types() -> list[dict]:
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.get(f"{_merchant_base()}/order_types", headers=_headers())
+        r.raise_for_status()
+        return r.json().get("elements", [])
+
+
+async def fetch_clover_item(item_id: str) -> dict:
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(
+            f"{_merchant_base()}/items/{item_id}",
+            headers=_headers(),
+            params={"expand": "categories"},
+        )
+        r.raise_for_status()
+        return r.json()
+
+
+async def fetch_all_clover_items() -> list[dict]:
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.get(
+            f"{_merchant_base()}/items",
+            headers=_headers(),
+            params={"expand": "categories", "limit": 500},
+        )
         r.raise_for_status()
         return r.json().get("elements", [])

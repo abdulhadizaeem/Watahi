@@ -167,6 +167,7 @@ class MenuItem(Base):
     allergens: Mapped[str | None] = mapped_column(String, nullable=True)
     prep_time_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    clover_item_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
@@ -238,6 +239,7 @@ async def init_db():
             "ALTER TABLE orders ADD COLUMN clover_order_id VARCHAR",
             "ALTER TABLE orders ADD COLUMN clover_synced BOOLEAN DEFAULT FALSE",
             "ALTER TABLE orders ADD COLUMN clover_error TEXT",
+            "ALTER TABLE menu_items ADD COLUMN clover_item_id VARCHAR UNIQUE",
         ]:
             try:
                 await conn.execute(text(col_sql))
